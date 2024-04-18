@@ -24,9 +24,9 @@ class VisionCameraFaceDetectorPlugin(
   options: Map<String, Any>?
 ) : FrameProcessorPlugin() {
   // device display data
-  private val density = Resources.getSystem().displayMetrics.density.toInt()
-  private val windowWidth = Resources.getSystem().displayMetrics.widthPixels / density
-  private val windowHeight = Resources.getSystem().displayMetrics.heightPixels / density
+  // private val density = Resources.getSystem().displayMetrics.density.toInt()
+  // private val windowWidth = Resources.getSystem().displayMetrics.widthPixels / density
+  // private val windowHeight = Resources.getSystem().displayMetrics.heightPixels / density
 
   // detection props
   private var faceDetector: FaceDetector? = null
@@ -97,15 +97,10 @@ class VisionCameraFaceDetectorPlugin(
     boundingBox: Rect,
   ): Map<String, Any> {
     val bounds: MutableMap<String, Any> = HashMap()
-    val width = boundingBox.width().toDouble()
-
-    bounds["width"] = width
+    bounds["width"] = boundingBox.width().toDouble()
     bounds["height"] = boundingBox.height().toDouble()
-    bounds["x"] = windowWidth - (width + (
-      boundingBox.left.toDouble()
-    ))
+    bounds["x"] = boundingBox.left.toDouble()
     bounds["y"] = boundingBox.top.toDouble()
-
     return bounds
   }
 
