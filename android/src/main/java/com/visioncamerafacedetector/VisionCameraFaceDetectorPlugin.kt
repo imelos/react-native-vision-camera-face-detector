@@ -15,6 +15,8 @@ import com.mrousavy.camera.core.FrameInvalidError
 import com.mrousavy.camera.frameprocessor.Frame
 import com.mrousavy.camera.frameprocessor.FrameProcessorPlugin
 import com.mrousavy.camera.frameprocessor.VisionCameraProxy
+import android.media.Image;
+import java.nio.ByteBuffer;
 
 private const val TAG = "FaceDetector"
 class VisionCameraFaceDetectorPlugin(
@@ -93,26 +95,22 @@ class VisionCameraFaceDetectorPlugin(
 
   private fun processBoundingBox(
     boundingBox: Rect,
-    scaleX: Double,
-    scaleY: Double
   ): Map<String, Any> {
     val bounds: MutableMap<String, Any> = HashMap()
-    val width = boundingBox.width().toDouble() * scaleX
+    val width = boundingBox.width().toDouble()
 
     bounds["width"] = width
-    bounds["height"] = boundingBox.height().toDouble() * scaleY
+    bounds["height"] = boundingBox.height().toDouble()
     bounds["x"] = windowWidth - (width + (
-      boundingBox.left.toDouble() * scaleX
+      boundingBox.left.toDouble()
     ))
-    bounds["y"] = boundingBox.top.toDouble() * scaleY
+    bounds["y"] = boundingBox.top.toDouble()
 
     return bounds
   }
 
   private fun processLandmarks(
     face: Face,
-    scaleX: Double,
-    scaleY: Double
   ): Map<String, Any> {
     val faceLandmarksTypes = intArrayOf(
       FaceLandmark.LEFT_CHEEK,
@@ -155,8 +153,8 @@ class VisionCameraFaceDetectorPlugin(
       }
       val point = landmark.position
       val currentPointsMap: MutableMap<String, Double> = HashMap()
-      currentPointsMap["x"] = point.x.toDouble() * scaleX
-      currentPointsMap["y"] = point.y.toDouble() * scaleY
+      currentPointsMap["x"] = point.x.toDouble()
+      currentPointsMap["y"] = point.y.toDouble()
       faceLandmarksTypesMap[landmarkName] = currentPointsMap
     }
 
@@ -165,8 +163,6 @@ class VisionCameraFaceDetectorPlugin(
 
   private fun processFaceContours(
     face: Face,
-    scaleX: Double,
-    scaleY: Double
   ): Map<String, Any> {
     val faceContoursTypes = intArrayOf(
       FaceContour.FACE,
@@ -221,8 +217,8 @@ class VisionCameraFaceDetectorPlugin(
       val pointsMap: MutableMap<String, Map<String, Double>> = HashMap()
       for (j in points.indices) {
         val currentPointsMap: MutableMap<String, Double> = HashMap()
-        currentPointsMap["x"] = points[j].x.toDouble() * scaleX
-        currentPointsMap["y"] = points[j].y.toDouble() * scaleY
+        currentPointsMap["x"] = points[j].x.toDouble()
+        currentPointsMap["y"] = points[j].y.toDouble()
         pointsMap[j.toString()] = currentPointsMap
       }
 
@@ -249,17 +245,35 @@ class VisionCameraFaceDetectorPlugin(
         return resultMap
       }
 
+      val planes: Array<Image.Plane> = frameImage.planes
+      val yPlaneBuffer: ByteBuffer = planes[0].buffer // Y plane contains the luminance information
+
+      // Optional: You could downsample here by only reading every nth pixel
+      val width: Int = frameImage.width
+      val height: Int = frameImage.height
+      val pixelStride: Int = planes[0].pixelStride
+      val rowStride: Int = planes[0].rowStride
+      val rowPadding: Int = rowStride - pixelStride * width
+
+      var totalLuminance: Long = 0
+      var pixelCount = 0
+
+      // Loop over the Y plane buffer and calculate the total luminance
+      for (y in 0 until height step 50) {
+          for (x in 0 until width step 50) {
+              val luminance: Int = yPlaneBuffer[y * rowStride + x * pixelStride].toInt() and 0xFF // Convert to unsigned
+              totalLuminance += luminance
+              pixelCount++
+          }
+          yPlaneBuffer.position(yPlaneBuffer.position() + rowPadding) // Skip the row padding
+      }
+
+      // Calculate the average brightness
+      val averageBrightness: Float = totalLuminance.toFloat() / pixelCount
+      val normalizedAverageBrightness: Float = averageBrightness / 255.0f
+
       val rotation = orientation!!.toDegrees()
       val image = InputImage.fromMediaImage(frameImage!!, rotation)
-      val scaleX: Double
-      val scaleY: Double
-      if (rotation == 270 || rotation == 90) {
-        scaleX = windowWidth.toDouble() / image.height
-        scaleY = windowHeight.toDouble() / image.width
-      } else {
-        scaleX = windowWidth.toDouble() / image.width
-        scaleY = windowHeight.toDouble() / image.height
-      }
 
       val task = faceDetector!!.process(image)
       val faces = Tasks.await(task)
@@ -270,9 +284,7 @@ class VisionCameraFaceDetectorPlugin(
 
         if (runLandmarks) {
           map["landmarks"] = processLandmarks(
-            face,
-            scaleX,
-            scaleY
+            face
           )
         }
 
@@ -284,9 +296,7 @@ class VisionCameraFaceDetectorPlugin(
 
         if (runContours) {
           map["contours"] = processFaceContours(
-            face,
-            scaleX,
-            scaleY
+            face
           )
         }
 
@@ -298,9 +308,7 @@ class VisionCameraFaceDetectorPlugin(
         map["pitchAngle"] = face.headEulerAngleX.toDouble()
         map["yawAngle"] = face.headEulerAngleY.toDouble()
         map["bounds"] = processBoundingBox(
-          face.boundingBox,
-          scaleX,
-          scaleY
+          face.boundingBox
         )
         facesList.add(map)
       }
@@ -315,9 +323,13 @@ class VisionCameraFaceDetectorPlugin(
       }
 
       resultMap["faces"] = facesList
-      if(returnOriginal || convertFrame) {
-        resultMap["frame"] = frameMap
-      }
+      // if(returnOriginal || convertFrame) {
+      //   resultMap["frame"] = frameMap
+      // }
+      resultMap["frame"] = frameMap
+      frameMap["brightness"] = normalizedAverageBrightness.toDouble()
+      frameMap["width"] = width.toDouble()
+      frameMap["height"] = height.toDouble()
     } catch (e: Exception) {
       Log.e(TAG, "Error processing face detection: ", e)
     } catch (e: FrameInvalidError) {

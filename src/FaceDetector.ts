@@ -49,6 +49,9 @@ export interface Face {
 export interface FrameData {
   converted?: string
   original?: Frame
+  brightness:number,
+  width:number,
+  height:number,
 }
 
 export interface Bounds {
