@@ -15,6 +15,8 @@ import com.mrousavy.camera.core.types.Orientation
 import com.mrousavy.camera.frameprocessors.Frame
 import com.mrousavy.camera.frameprocessors.FrameProcessorPlugin
 import com.mrousavy.camera.frameprocessors.VisionCameraProxy
+import android.media.Image;
+import java.nio.ByteBuffer;
 
 private const val TAG = "FaceDetector"
 class VisionCameraFaceDetectorPlugin(
@@ -102,7 +104,7 @@ class VisionCameraFaceDetectorPlugin(
 
     bounds["width"] = width
     bounds["height"] = boundingBox.height().toDouble() * scaleY
-    bounds["x"] = (-x + sourceWidth * scaleX) - width
+    bounds["x"] = x
     bounds["y"] = boundingBox.top.toDouble() * scaleY
 
     return bounds
@@ -246,10 +248,39 @@ class VisionCameraFaceDetectorPlugin(
     params: Map<String, Any>?
   ): Any {
     val result = ArrayList<Map<String, Any>>()
+    val resultMap: MutableMap<String, Any> = HashMap()
     
     try {
       val rotation = getFrameRotation(frame.orientation)
-      val image = InputImage.fromMediaImage(frame.image, rotation)
+      val frameImage = frame.image
+      val image = InputImage.fromMediaImage(frameImage, rotation)
+
+      val planes: Array<Image.Plane> = frameImage.planes
+      val yPlaneBuffer: ByteBuffer = planes[0].buffer // Y plane contains the luminance information
+
+      // Optional: You could downsample here by only reading every nth pixel
+      val width: Int = frameImage.width
+      val height: Int = frameImage.height
+      val pixelStride: Int = planes[0].pixelStride
+      val rowStride: Int = planes[0].rowStride
+      val rowPadding: Int = rowStride - pixelStride * width
+
+      var totalLuminance: Long = 0
+      var pixelCount = 0
+
+      // Loop over the Y plane buffer and calculate the total luminance
+      for (y in 0 until height step 50) {
+          for (x in 0 until width step 50) {
+              val luminance: Int = yPlaneBuffer[y * rowStride + x * pixelStride].toInt() and 0xFF // Convert to unsigned
+              totalLuminance += luminance
+              pixelCount++
+          }
+          yPlaneBuffer.position(yPlaneBuffer.position() + rowPadding) // Skip the row padding
+      }
+
+      // Calculate the average brightness
+      val averageBrightness: Float = totalLuminance.toFloat() / pixelCount
+      val normalizedAverageBrightness: Float = averageBrightness / 255.0f
 
       val sourceWidth: Double
       val sourceHeight: Double
@@ -306,12 +337,14 @@ class VisionCameraFaceDetectorPlugin(
         )
         result.add(map)
       }
+      resultMap["brightness"] = normalizedAverageBrightness.toDouble()
+      resultMap["faces"] = result;
     } catch (e: Exception) {
       Log.e(TAG, "Error processing face detection: ", e)
     } catch (e: FrameInvalidError) {
       Log.e(TAG, "Frame invalid error: ", e)
     }
 
-    return result
+    return resultMap
   }
 }
