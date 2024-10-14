@@ -314,7 +314,7 @@ public class VisionCameraFaceDetector: FrameProcessorPlugin {
     let concurrentQueue = DispatchQueue(label: "brightnessQueue", attributes: .concurrent)
     
     var totalBrightness: Float = 0
-    let pixelCount = width * height
+    let pixelCount = (width / 15) * (height / 15)
     let chunkSize = height / ProcessInfo.processInfo.activeProcessorCount
     
     let totalBrightnessPointer = UnsafeMutablePointer<Float>.allocate(capacity: 1)
@@ -325,9 +325,9 @@ public class VisionCameraFaceDetector: FrameProcessorPlugin {
         
         concurrentQueue.async(group: group) {
             var localBrightness: Float = 0
-            for y in chunkStart..<chunkEnd {
+            for y in stride(from: chunkStart, to: chunkEnd, by: 15) {
                 let rowPointer = pixelBuffer + y * bytesPerRow
-                for x in 0..<width {
+                for x in stride(from: 0, to: width, by: 15) {
                     let pixelPointer = rowPointer + x * 4
                     let red = Float(pixelPointer[0]) / 255.0
                     let green = Float(pixelPointer[1]) / 255.0
@@ -353,7 +353,7 @@ public class VisionCameraFaceDetector: FrameProcessorPlugin {
     CVPixelBufferUnlockBaseAddress(buffer, .readOnly)
     
     return averageBrightness
-  }
+}
 
   // Function to normalize brightness to a range [0, 1]
   func normalizeBrightness(_ brightness: Float) -> Float {
