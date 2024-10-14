@@ -294,40 +294,65 @@ public class VisionCameraFaceDetector: FrameProcessorPlugin {
 
   // Function to calculate the average brightness from an image buffer
   func calculateAverageBrightness(from buffer: CVImageBuffer) -> Float {
-      CVPixelBufferLockBaseAddress(buffer, .readOnly)
-      let width = CVPixelBufferGetWidth(buffer)
-      let height = CVPixelBufferGetHeight(buffer)
-      let baseAddress = CVPixelBufferGetBaseAddress(buffer)
-      let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
-      
-      var totalBrightness: Float = 0
-      var pixelCount = 0
-
-      if let baseAddress = baseAddress {
-          let pixelBuffer = baseAddress.assumingMemoryBound(to: UInt8.self)
-          let luminanceFactors = SIMD3<Float>(0.299, 0.587, 0.114)
-          
-          for y in 0..<height {
-              let rowPointer = pixelBuffer + y * bytesPerRow
-              for x in 0..<width {
-                  let pixelPointer = rowPointer + x * 4
-                  
-                  let red = Float(pixelPointer[0]) / 255.0
-                  let green = Float(pixelPointer[1]) / 255.0
-                  let blue = Float(pixelPointer[2]) / 255.0
-                  
-                  let colorVector = SIMD3<Float>(red, green, blue)
-                  let brightness = dot(colorVector, luminanceFactors)
-                  
-                  totalBrightness += brightness
-                  pixelCount += 1
-              }
-          }
-      }
-      
-      CVPixelBufferUnlockBaseAddress(buffer, .readOnly)
-      
-      return totalBrightness / Float(pixelCount)
+    CVPixelBufferLockBaseAddress(buffer, .readOnly)
+    
+    let width = CVPixelBufferGetWidth(buffer)
+    let height = CVPixelBufferGetHeight(buffer)
+    let baseAddress = CVPixelBufferGetBaseAddress(buffer)
+    let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+    
+    guard let baseAddress = baseAddress else {
+        CVPixelBufferUnlockBaseAddress(buffer, .readOnly)
+        return 0
+    }
+    
+    let pixelBuffer = baseAddress.assumingMemoryBound(to: UInt8.self)
+    let luminanceFactors = SIMD3<Float>(0.299, 0.587, 0.114)
+    
+    // Multithreaded processing
+    let group = DispatchGroup()
+    let concurrentQueue = DispatchQueue(label: "brightnessQueue", attributes: .concurrent)
+    
+    var totalBrightness: Float = 0
+    let pixelCount = width * height
+    let chunkSize = height / ProcessInfo.processInfo.activeProcessorCount
+    
+    let totalBrightnessPointer = UnsafeMutablePointer<Float>.allocate(capacity: 1)
+    totalBrightnessPointer.pointee = 0
+    
+    for chunkStart in stride(from: 0, to: height, by: chunkSize) {
+        let chunkEnd = min(chunkStart + chunkSize, height)
+        
+        concurrentQueue.async(group: group) {
+            var localBrightness: Float = 0
+            for y in chunkStart..<chunkEnd {
+                let rowPointer = pixelBuffer + y * bytesPerRow
+                for x in 0..<width {
+                    let pixelPointer = rowPointer + x * 4
+                    let red = Float(pixelPointer[0]) / 255.0
+                    let green = Float(pixelPointer[1]) / 255.0
+                    let blue = Float(pixelPointer[2]) / 255.0
+                    
+                    let colorVector = SIMD3<Float>(red, green, blue)
+                    localBrightness += dot(colorVector, luminanceFactors)
+                }
+            }
+            
+            // Safely update the totalBrightness across threads
+            DispatchQueue.global().sync {
+                totalBrightnessPointer.pointee += localBrightness
+            }
+        }
+    }
+    
+    group.wait()
+    
+    let averageBrightness = totalBrightnessPointer.pointee / Float(pixelCount)
+    totalBrightnessPointer.deallocate()
+    
+    CVPixelBufferUnlockBaseAddress(buffer, .readOnly)
+    
+    return averageBrightness
   }
 
   // Function to normalize brightness to a range [0, 1]
