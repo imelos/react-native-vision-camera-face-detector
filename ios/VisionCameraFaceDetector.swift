@@ -6,6 +6,7 @@ import CoreML
 import UIKit
 import AVFoundation
 import SceneKit
+import Accelerate
 
 @objc(VisionCameraFaceDetector)
 public class VisionCameraFaceDetector: FrameProcessorPlugin {
@@ -215,6 +216,8 @@ public class VisionCameraFaceDetector: FrameProcessorPlugin {
     withArguments arguments: [AnyHashable: Any]?
   ) -> Any {
     var result: [Any] = []
+    var resultData: [String: Any] = [:]
+    var normalizedBrightness:Float = 0.5;
 
     do {
       let image = VisionImage(buffer: frame.buffer)
@@ -228,6 +231,16 @@ public class VisionCameraFaceDetector: FrameProcessorPlugin {
       } else {
         scaleX = CGFloat(1)
         scaleY = CGFloat(1)
+      }
+
+      // Convert CMSampleBuffer to CVImageBuffer
+      if let imageBuffer = CMSampleBufferGetImageBuffer(frame.buffer) {
+          // Calculate and normalize average brightness
+          let avgBrightness = calculateAverageBrightness(from: imageBuffer)
+          normalizedBrightness = normalizeBrightness(avgBrightness)
+          // print("Normalized Brightness: \(normalizedBrightness)")
+      } else {
+          // print("Failed to get CVImageBuffer from CMSampleBuffer.")
       }
 
       let faces: [Face] = try faceDetector!.results(in: image)
@@ -274,7 +287,51 @@ public class VisionCameraFaceDetector: FrameProcessorPlugin {
     } catch let error {
       print("Error processing face detection: \(error)")
     }
+    resultData["faces"] = result
+    resultData["brightness"] = normalizedBrightness
+    return resultData
+  }
 
-    return result
+  // Function to calculate the average brightness from an image buffer
+  func calculateAverageBrightness(from buffer: CVImageBuffer) -> Float {
+      CVPixelBufferLockBaseAddress(buffer, .readOnly)
+      let width = CVPixelBufferGetWidth(buffer)
+      let height = CVPixelBufferGetHeight(buffer)
+      let baseAddress = CVPixelBufferGetBaseAddress(buffer)
+      let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+      
+      var totalBrightness: Float = 0
+      var pixelCount = 0
+
+      if let baseAddress = baseAddress {
+          let pixelBuffer = baseAddress.assumingMemoryBound(to: UInt8.self)
+          let luminanceFactors = SIMD3<Float>(0.299, 0.587, 0.114)
+          
+          for y in 0..<height {
+              let rowPointer = pixelBuffer + y * bytesPerRow
+              for x in 0..<width {
+                  let pixelPointer = rowPointer + x * 4
+                  
+                  let red = Float(pixelPointer[0]) / 255.0
+                  let green = Float(pixelPointer[1]) / 255.0
+                  let blue = Float(pixelPointer[2]) / 255.0
+                  
+                  let colorVector = SIMD3<Float>(red, green, blue)
+                  let brightness = dot(colorVector, luminanceFactors)
+                  
+                  totalBrightness += brightness
+                  pixelCount += 1
+              }
+          }
+      }
+      
+      CVPixelBufferUnlockBaseAddress(buffer, .readOnly)
+      
+      return totalBrightness / Float(pixelCount)
+  }
+
+  // Function to normalize brightness to a range [0, 1]
+  func normalizeBrightness(_ brightness: Float) -> Float {
+      return min(max(brightness, 0), 1)  // Ensuring the value stays within [0, 1]
   }
 }
