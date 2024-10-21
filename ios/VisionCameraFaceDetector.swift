@@ -325,9 +325,9 @@ public class VisionCameraFaceDetector: FrameProcessorPlugin {
         
         concurrentQueue.async(group: group) {
             var localBrightness: Float = 0
-            for y in stride(from: chunkStart, to: chunkEnd, by: 15) {
+            for y in stride(from: chunkStart, to: chunkEnd, by: 20) {
                 let rowPointer = pixelBuffer + y * bytesPerRow
-                for x in stride(from: 0, to: width, by: 15) {
+                for x in stride(from: 0, to: width, by: 20) {
                     let pixelPointer = rowPointer + x * 4
                     let red = Float(pixelPointer[0]) / 255.0
                     let green = Float(pixelPointer[1]) / 255.0
