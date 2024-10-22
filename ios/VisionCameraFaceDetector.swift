@@ -314,7 +314,7 @@ public class VisionCameraFaceDetector: FrameProcessorPlugin {
     let concurrentQueue = DispatchQueue(label: "brightnessQueue", attributes: .concurrent)
     
     var totalBrightness: Float = 0
-    let pixelCount = (width / 15) * (height / 15)
+    let pixelCount = (width / 20) * (height / 20)
     let chunkSize = height / ProcessInfo.processInfo.activeProcessorCount
     
     let totalBrightnessPointer = UnsafeMutablePointer<Float>.allocate(capacity: 1)
